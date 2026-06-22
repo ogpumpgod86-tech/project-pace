@@ -1,0 +1,10 @@
+{
+  "name": "Project Pace",
+  "short_name": "Pace",
+  "description": "Your community, in motion.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#080a12",
+  "theme_color": "#080a12",
+  "icons": []
+}
