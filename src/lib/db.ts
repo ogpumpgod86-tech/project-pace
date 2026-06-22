@@ -17,6 +17,7 @@ import * as store from "./mockStore";
 import type {
   ChatChannel,
   ChatMessage,
+  Comment,
   Community,
   EventItem,
   LeaderRow,
@@ -92,7 +93,15 @@ export async function getCommunities(): Promise<Community[]> {
 // ── Profiles for a community (also used to resolve authors) ────────────────
 export async function getProfileMap(communityId = DEMO_COMMUNITY): Promise<ProfileMap> {
   if (!isLive || !supabase) {
-    return Object.fromEntries(mock.members.map((m) => [m.id, m]));
+    return Object.fromEntries(
+      mock.members.map((m) => {
+        const o = store.getOverride(m.id);
+        return [
+          m.id,
+          { ...m, name: o.name ?? m.name, bio: o.bio ?? m.bio, avatar: o.avatar ?? m.avatar },
+        ];
+      })
+    );
   }
   const { data } = await supabase
     .from("memberships")
@@ -140,6 +149,8 @@ export async function createPost(input: {
   text: string;
   kind?: Post["kind"];
   image?: string;
+  stat?: { label: string; value: string }[];
+  splits?: number[];
 }): Promise<Post | null> {
   if (!isLive || !supabase) {
     const post: Post = {
@@ -149,6 +160,8 @@ export async function createPost(input: {
       kind: input.kind ?? "update",
       text: input.text,
       image: input.image,
+      stat: input.stat,
+      splits: input.splits,
       likes: 0,
       comments: [],
     };
@@ -163,6 +176,7 @@ export async function createPost(input: {
       text: input.text,
       kind: input.kind ?? "update",
       image_url: input.image ?? null,
+      stat: input.stat ?? null,
     })
     .select("*, comments(*)")
     .single();
@@ -359,17 +373,129 @@ export async function getEventChannelId(eventId: string, title: string): Promise
   return first?.[0]?.id ?? "";
 }
 
-// ── Follows (mock-only for the MVP) ────────────────────────────────────────
-export function isFollowing(id: string): boolean {
-  return store.isFollowing(id);
+// ── Social graph (mock-only for the MVP) ───────────────────────────────────
+export function isFollowing(followerId: string, followeeId: string): boolean {
+  return store.isFollowing(followerId, followeeId);
 }
 
-export function toggleFollow(id: string): boolean {
-  return store.toggleFollow(id);
+export function toggleFollow(followerId: string, followeeId: string): boolean {
+  return store.toggleFollow(followerId, followeeId);
+}
+
+export function getFollowers(id: string): string[] {
+  return store.getFollowers(id);
+}
+
+export function getFollowing(id: string): string[] {
+  return store.getFollowing(id);
+}
+
+export function followerCount(id: string): number {
+  return store.followerCount(id);
+}
+
+export function followingCount(id: string): number {
+  return store.followingCount(id);
 }
 
 // ── Single member lookup (for profile pages) ───────────────────────────────
 export async function getMember(id: string): Promise<Member | null> {
   const map = await getProfileMap();
   return map[id] ?? null;
+}
+
+// ── Profile editing ────────────────────────────────────────────────────────
+export function updateProfile(id: string, patch: { name?: string; bio?: string; avatar?: string }): void {
+  // Mock mode persists to the local store; live mode would update `profiles`.
+  store.setOverride(id, patch);
+}
+
+// ── Comments + post delete ─────────────────────────────────────────────────
+export async function addComment(postId: string, authorId: string, text: string): Promise<Comment | null> {
+  const comment: Comment = {
+    id: `cm_${Date.now()}`,
+    authorId,
+    text,
+    createdAt: new Date().toISOString(),
+  };
+  if (!isLive || !supabase) {
+    store.addComment(postId, comment);
+    return comment;
+  }
+  const { data, error } = await supabase
+    .from("comments")
+    .insert({ post_id: postId, author_id: authorId, text })
+    .select("*")
+    .single();
+  if (error || !data) return null;
+  return { id: data.id, authorId: data.author_id, text: data.text, createdAt: data.created_at };
+}
+
+export async function deletePost(id: string): Promise<void> {
+  if (!isLive || !supabase) {
+    store.deletePost(id);
+    return;
+  }
+  await supabase.from("posts").delete().eq("id", id);
+}
+
+export function likedPostIds(): string[] {
+  return store.likedPostIds();
+}
+
+// ── Community join / browse (mock-only for the MVP) ────────────────────────
+export function isJoined(id: string): boolean {
+  return store.isJoined(id);
+}
+
+export function toggleJoin(id: string): boolean {
+  return store.toggleJoin(id);
+}
+
+export function joinedCommunities(): string[] {
+  return store.joinedCommunities();
+}
+
+// ── Points + challenges (mock-only for the MVP) ────────────────────────────
+export function awardedPoints(id: string): number {
+  return store.awardedPoints(id);
+}
+
+export function challengeProgress(id: string): number {
+  return store.challengeProgress(id);
+}
+
+export function isChallengeJoined(id: string): boolean {
+  return store.isChallengeJoined(id);
+}
+
+export function setChallengeJoined(id: string, joined: boolean): void {
+  store.setChallengeJoined(id, joined);
+}
+
+// Logs progress against a challenge and, on completion, awards points to the user.
+export function logChallengeProgress(
+  challengeId: string,
+  profileId: string,
+  amount: number,
+  goal: number,
+  rewardPoints: number
+): { progress: number; completed: boolean } {
+  const before = store.challengeProgress(challengeId);
+  const progress = store.addChallengeProgress(challengeId, amount, goal);
+  const completed = before < goal && progress >= goal;
+  if (completed) store.awardPoints(profileId, rewardPoints);
+  return { progress, completed };
+}
+
+export function listGroupRewards(communityId: string) {
+  return store.listGroupRewards(communityId);
+}
+
+export function addGroupReward(communityId: string, points: number, title: string) {
+  store.addGroupReward({ id: `gr_${Date.now()}`, communityId, points, title });
+}
+
+export function removeGroupReward(id: string) {
+  store.removeGroupReward(id);
 }

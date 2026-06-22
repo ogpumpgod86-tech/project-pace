@@ -44,6 +44,7 @@ export const communities: Community[] = [
     avatar:
       "https://images.unsplash.com/photo-1571008887538-b36bb32f4571?w=200&q=70",
     accent: "#6d5efc",
+    distanceMi: 1.2,
   },
   {
     id: "c_downtown",
@@ -58,6 +59,7 @@ export const communities: Community[] = [
     avatar:
       "https://images.unsplash.com/photo-1486218119243-13883505764c?w=200&q=70",
     accent: "#22e0a1",
+    distanceMi: 2.8,
   },
   {
     id: "c_crossfit",
@@ -72,6 +74,7 @@ export const communities: Community[] = [
     avatar:
       "https://images.unsplash.com/photo-1517963879433-6ad2b056d712?w=200&q=70",
     accent: "#ff7a45",
+    distanceMi: 14.5,
   },
   {
     id: "c_cycling",
@@ -86,6 +89,59 @@ export const communities: Community[] = [
     avatar:
       "https://images.unsplash.com/photo-1517649763962-0c623066013b?w=200&q=70",
     accent: "#ffc24b",
+    distanceMi: 22.0,
+  },
+  {
+    id: "c_boxing",
+    name: "Bay Area Boxing Club",
+    handle: "bayboxing",
+    type: "boxing",
+    tagline: "Footwork, fitness, and heart",
+    city: "Tampa, FL",
+    memberCount: 142,
+    cover: "https://images.unsplash.com/photo-1549719386-74dfcbf7dbed?w=900&q=70",
+    avatar: "https://images.unsplash.com/photo-1517438476312-10d79c077509?w=200&q=70",
+    accent: "#ef4444",
+    distanceMi: 3.4,
+  },
+  {
+    id: "c_hiking",
+    name: "Gulf Coast Hikers",
+    handle: "gulfhikers",
+    type: "hiking",
+    tagline: "Trails, summits, and good company",
+    city: "Brandon, FL",
+    memberCount: 188,
+    cover: "https://images.unsplash.com/photo-1551632811-561732d1e306?w=900&q=70",
+    avatar: "https://images.unsplash.com/photo-1454496522488-7a8e488e8606?w=200&q=70",
+    accent: "#16a34a",
+    distanceMi: 9.1,
+  },
+  {
+    id: "c_walking",
+    name: "Sunset Walkers",
+    handle: "sunsetwalk",
+    type: "walking",
+    tagline: "Steps, sunsets, and friends",
+    city: "St. Pete, FL",
+    memberCount: 97,
+    cover: "https://images.unsplash.com/photo-1476480862126-209bfaa8edc8?w=900&q=70",
+    avatar: "https://images.unsplash.com/photo-1538805060514-97d9cc17730c?w=200&q=70",
+    accent: "#f59e0b",
+    distanceMi: 12.6,
+  },
+  {
+    id: "c_tri",
+    name: "Suncoast Triathletes",
+    handle: "suncoasttri",
+    type: "triathlon",
+    tagline: "Swim. Bike. Run. Repeat.",
+    city: "Sarasota, FL",
+    memberCount: 173,
+    cover: "https://images.unsplash.com/photo-1530549387789-4c1017266635?w=900&q=70",
+    avatar: "https://images.unsplash.com/photo-1486218119243-13883505764c?w=200&q=70",
+    accent: "#0ea5e9",
+    distanceMi: 31.2,
   },
 ];
 

@@ -6,7 +6,17 @@ import TopBar from "@/components/TopBar";
 import type { Member, Post } from "@/lib/types";
 import { timeAgo } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
-import { createPost, getPosts, getProfileMap, likePost, type ProfileMap } from "@/lib/db";
+import {
+  addComment as dbAddComment,
+  createPost,
+  deletePost as dbDeletePost,
+  getPosts,
+  getProfileMap,
+  isFollowing,
+  likePost,
+  toggleFollow,
+  type ProfileMap,
+} from "@/lib/db";
 
 const kindLabel: Record<Post["kind"], { label: string; cls: string }> = {
   pr: { label: "🏅 Personal Record", cls: "bg-gold/15 text-gold" },
@@ -17,16 +27,23 @@ const kindLabel: Record<Post["kind"], { label: string; cls: string }> = {
 };
 
 const unknownMember = (id: string): Member => ({
-  id,
-  name: "Member",
-  handle: "member",
-  avatar: `https://i.pravatar.cc/200?u=${id}`,
-  role: "member",
-  bio: "",
-  joined: "",
-  badges: [],
+  id, name: "Member", handle: "member", avatar: `https://i.pravatar.cc/200?u=${id}`,
+  role: "member", bio: "", joined: "", badges: [],
   stats: { totalMiles: 0, weeklyMiles: 0, runs: 0, eventsAttended: 0, streak: 0 },
 });
+
+// Builds per-mile splits (seconds) around an average pace, for the run graph.
+function buildSplits(miles: number, totalSeconds: number): number[] {
+  const n = Math.max(1, Math.min(26, Math.round(miles)));
+  const avg = totalSeconds / n;
+  return Array.from({ length: n }, (_, i) => Math.round(avg * (0.94 + (((i * 7) % 5) / 40))));
+}
+
+function fmtPace(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
 
 export default function FeedPage() {
   const { profileId } = useAuth();
@@ -35,6 +52,7 @@ export default function FeedPage() {
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState("");
   const [draftImage, setDraftImage] = useState<string | undefined>(undefined);
+  const [runOpen, setRunOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const who = (id: string) => profiles[id] ?? unknownMember(id);
@@ -58,9 +76,20 @@ export default function FeedPage() {
     if (!post) return;
     const liked = !post.liked;
     const likes = post.likes + (liked ? 1 : -1);
-    // Persist once, outside the state updater (updaters may run twice in dev).
     likePost(id, likes, liked);
     setPosts((list) => list.map((p) => (p.id === id ? { ...p, liked, likes } : p)));
+  };
+
+  const removePost = (id: string) => {
+    dbDeletePost(id);
+    setPosts((list) => list.filter((p) => p.id !== id));
+  };
+
+  const addComment = async (postId: string, text: string) => {
+    if (!profileId) return;
+    const c = await dbAddComment(postId, profileId, text);
+    if (!c) return;
+    setPosts((list) => list.map((p) => (p.id === postId ? { ...p, comments: [...p.comments, c] } : p)));
   };
 
   const onPickImage = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -72,25 +101,37 @@ export default function FeedPage() {
     e.target.value = "";
   };
 
+  const prepend = async (input: Parameters<typeof createPost>[0]) => {
+    const saved = await createPost(input);
+    if (saved) setPosts((p) => [saved, ...p]);
+  };
+
   const publish = async () => {
     const text = draft.trim();
     if ((!text && !draftImage) || !profileId) return;
-    setDraft("");
     const image = draftImage;
+    setDraft("");
     setDraftImage(undefined);
-    const saved = await createPost({ authorId: profileId, text, image });
-    const newPost: Post =
-      saved ?? {
-        id: `p_${Date.now()}`,
-        authorId: profileId,
-        createdAt: new Date().toISOString(),
-        kind: "update",
-        text,
-        image,
-        likes: 0,
-        comments: [],
-      };
-    setPosts((p) => [newPost, ...p]);
+    await prepend({ authorId: profileId, text, image });
+  };
+
+  const publishRun = async (data: { miles: number; minutes: number; seconds: number; note: string }) => {
+    if (!profileId) return;
+    const totalSec = data.minutes * 60 + data.seconds;
+    const paceSec = data.miles > 0 ? totalSec / data.miles : 0;
+    const splits = buildSplits(data.miles, totalSec);
+    await prepend({
+      authorId: profileId,
+      kind: "workout",
+      text: data.note.trim() || `Logged a ${data.miles} mi run 🏃`,
+      stat: [
+        { label: "Distance", value: `${data.miles} mi` },
+        { label: "Time", value: `${data.minutes}:${data.seconds.toString().padStart(2, "0")}` },
+        { label: "Pace", value: `${fmtPace(paceSec)}/mi` },
+      ],
+      splits,
+    });
+    setRunOpen(false);
   };
 
   return (
@@ -129,7 +170,7 @@ export default function FeedPage() {
             <div className="flex gap-1 text-slate-500">
               <IconBtn label="Photo" onClick={() => fileRef.current?.click()}>🖼️</IconBtn>
               <IconBtn label="Video" onClick={() => fileRef.current?.click()}>🎥</IconBtn>
-              <IconBtn label="Stats">📊</IconBtn>
+              <IconBtn label="Run data" onClick={() => setRunOpen(true)}>📊</IconBtn>
             </div>
             <button onClick={publish} className="btn-primary px-4 py-1.5 text-xs disabled:opacity-40" disabled={!draft.trim() && !draftImage}>
               Post
@@ -142,11 +183,109 @@ export default function FeedPage() {
         ) : (
           <div className="space-y-4">
             {posts.map((post) => (
-              <PostCard key={post.id} post={post} who={who} onLike={() => toggleLike(post.id)} />
+              <PostCard
+                key={post.id}
+                post={post}
+                who={who}
+                profileId={profileId}
+                you={you}
+                onLike={() => toggleLike(post.id)}
+                onDelete={() => removePost(post.id)}
+                onComment={(t) => addComment(post.id, t)}
+              />
             ))}
           </div>
         )}
       </main>
+
+      {runOpen && <RunDataModal onSubmit={publishRun} onClose={() => setRunOpen(false)} />}
+    </div>
+  );
+}
+
+function RunDataModal({
+  onSubmit,
+  onClose,
+}: {
+  onSubmit: (d: { miles: number; minutes: number; seconds: number; note: string }) => void;
+  onClose: () => void;
+}) {
+  const [miles, setMiles] = useState("5");
+  const [minutes, setMinutes] = useState("42");
+  const [seconds, setSeconds] = useState("30");
+  const [note, setNote] = useState("");
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 backdrop-blur-sm sm:items-center" onClick={onClose}>
+      <div className="card w-full max-w-md animate-fade-up p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-bold text-white">Log a run 🏃</h3>
+          <button onClick={onClose} className="grid h-8 w-8 place-items-center rounded-lg bg-white/5 text-slate-400">✕</button>
+        </div>
+        <div className="mt-4 grid grid-cols-3 gap-2">
+          <NumField label="Miles" value={miles} onChange={setMiles} />
+          <NumField label="Minutes" value={minutes} onChange={setMinutes} />
+          <NumField label="Seconds" value={seconds} onChange={setSeconds} />
+        </div>
+        <label className="mt-3 block">
+          <span className="mb-1 block text-xs font-medium text-slate-400">Note (optional)</span>
+          <input
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Felt great out there!"
+            className="w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm text-white placeholder:text-slate-600 focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/30"
+          />
+        </label>
+        <button
+          onClick={() =>
+            onSubmit({
+              miles: Math.max(0.1, Number(miles) || 0),
+              minutes: Math.max(0, Number(minutes) || 0),
+              seconds: Math.max(0, Number(seconds) || 0),
+              note,
+            })
+          }
+          className="btn-primary mt-5 w-full"
+        >
+          Post run
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function NumField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-xs font-medium text-slate-400">{label}</span>
+      <input
+        type="number"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/30"
+      />
+    </label>
+  );
+}
+
+function SplitsGraph({ splits }: { splits: number[] }) {
+  const max = Math.max(...splits);
+  const min = Math.min(...splits);
+  const range = Math.max(1, max - min);
+  return (
+    <div className="mx-3 mb-3 rounded-xl bg-white/5 p-3">
+      <p className="mb-2 text-[10px] uppercase tracking-wide text-slate-500">Pace by mile</p>
+      <div className="flex h-16 items-end gap-1">
+        {splits.map((s, i) => {
+          // faster (lower seconds) = taller bar
+          const h = 30 + Math.round(((max - s) / range) * 70);
+          return <div key={i} className="flex-1 rounded-t bg-gradient-to-t from-brand to-accent" style={{ height: `${h}%` }} title={`Mile ${i + 1}: ${fmtPace(s)}`} />;
+        })}
+      </div>
+      <div className="mt-1 flex justify-between text-[9px] text-slate-500">
+        <span>Mile 1</span>
+        <span>Mile {splits.length}</span>
+      </div>
     </div>
   );
 }
@@ -178,10 +317,45 @@ function IconBtn({ children, label, onClick }: { children: React.ReactNode; labe
   );
 }
 
-function PostCard({ post, who, onLike }: { post: Post; who: (id: string) => Member; onLike: () => void }) {
+function PostCard({
+  post,
+  who,
+  profileId,
+  you,
+  onLike,
+  onDelete,
+  onComment,
+}: {
+  post: Post;
+  who: (id: string) => Member;
+  profileId: string | null;
+  you: Member;
+  onLike: () => void;
+  onDelete: () => void;
+  onComment: (text: string) => void;
+}) {
   const author = who(post.authorId);
   const [showComments, setShowComments] = useState(false);
+  const [commentDraft, setCommentDraft] = useState("");
+  const [following, setFollowing] = useState(false);
   const meta = kindLabel[post.kind];
+  const mine = profileId === post.authorId;
+
+  useEffect(() => {
+    if (profileId && !mine) setFollowing(isFollowing(profileId, post.authorId));
+  }, [profileId, mine, post.authorId]);
+
+  const onFollow = () => {
+    if (!profileId) return;
+    setFollowing(toggleFollow(profileId, post.authorId));
+  };
+
+  const submitComment = () => {
+    const t = commentDraft.trim();
+    if (!t) return;
+    onComment(t);
+    setCommentDraft("");
+  };
 
   return (
     <article className="card overflow-hidden">
@@ -193,10 +367,16 @@ function PostCard({ post, who, onLike }: { post: Post; who: (id: string) => Memb
             <p className="text-xs text-slate-500">@{author.handle} · {timeAgo(post.createdAt)}</p>
           </div>
         </Link>
-        <span className={`pill ${meta.cls}`}>{meta.label}</span>
+        {mine ? (
+          <button onClick={onDelete} aria-label="Delete post" className="text-xs text-slate-500 hover:text-flame">🗑</button>
+        ) : (
+          <button onClick={onFollow} className={`text-xs font-semibold ${following ? "text-accent" : "text-brand-400"}`}>
+            {following ? "Following" : "+ Follow"}
+          </button>
+        )}
       </div>
 
-      <p className="px-3 pb-3 text-[15px] leading-relaxed text-slate-200">{post.text}</p>
+      {post.text && <p className="px-3 pb-3 text-[15px] leading-relaxed text-slate-200">{post.text}</p>}
 
       {post.stat && (
         <div className="mx-3 mb-3 grid grid-cols-3 divide-x divide-white/5 rounded-xl bg-white/5 py-3">
@@ -208,6 +388,8 @@ function PostCard({ post, who, onLike }: { post: Post; who: (id: string) => Memb
           ))}
         </div>
       )}
+
+      {post.splits && post.splits.length > 0 && <SplitsGraph splits={post.splits} />}
 
       {post.image && (
         // eslint-disable-next-line @next/next/no-img-element
@@ -237,6 +419,21 @@ function PostCard({ post, who, onLike }: { post: Post; who: (id: string) => Memb
               </div>
             );
           })}
+
+          {/* Add comment */}
+          <div className="flex items-center gap-2 pt-1">
+            <img src={you.avatar} alt="" className="h-7 w-7 rounded-full object-cover" />
+            <input
+              value={commentDraft}
+              onChange={(e) => setCommentDraft(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && submitComment()}
+              placeholder="Add a comment…"
+              className="flex-1 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-white placeholder:text-slate-600 focus:border-brand focus:outline-none"
+            />
+            <button onClick={submitComment} className="text-sm font-semibold text-brand-400 disabled:opacity-40" disabled={!commentDraft.trim()}>
+              Send
+            </button>
+          </div>
         </div>
       )}
     </article>

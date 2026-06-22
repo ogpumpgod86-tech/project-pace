@@ -1,6 +1,7 @@
 import Link from "next/link";
 import TopBar from "@/components/TopBar";
 import AttendanceDrilldown from "@/components/AttendanceDrilldown";
+import GroupRewardsEditor from "@/components/GroupRewardsEditor";
 import {
   events,
   members,
@@ -92,6 +93,9 @@ export default function OwnerDashboardPage() {
             ))}
           </div>
         </section>
+
+        {/* Group-defined rewards (non-monetary) */}
+        <GroupRewardsEditor />
 
         {/* Monetization teaser */}
         <section className="card overflow-hidden bg-gradient-to-br from-gold/15 to-ink-850 p-4">

@@ -7,7 +7,8 @@ export type ActivityType =
   | "cycling"
   | "hiking"
   | "crossfit"
-  | "triathlon";
+  | "triathlon"
+  | "boxing";
 
 export interface Community {
   id: string;
@@ -20,6 +21,15 @@ export interface Community {
   cover: string;
   avatar: string;
   accent: string; // hex used for subtle theming
+  distanceMi?: number; // approx distance from the user, for "nearby" discovery
+}
+
+// Group-owner-defined, non-monetary reward unlocked at a points milestone.
+export interface GroupReward {
+  id: string;
+  communityId: string;
+  points: number;
+  title: string;
 }
 
 export interface Member {
@@ -48,6 +58,7 @@ export interface Post {
   image?: string;
   kind: "update" | "pr" | "race" | "workout" | "question";
   stat?: { label: string; value: string }[];
+  splits?: number[]; // per-mile pace (seconds) for the run graph
   likes: number;
   liked?: boolean;
   comments: Comment[];
