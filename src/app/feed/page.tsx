@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import TopBar from "@/components/TopBar";
-import { memberById, posts as seedPosts, youId } from "@/lib/mockData";
-import type { Post } from "@/lib/types";
+import type { Member, Post } from "@/lib/types";
 import { timeAgo } from "@/lib/format";
+import { useAuth } from "@/lib/auth";
+import { createPost, getPosts, getProfileMap, likePost, type ProfileMap } from "@/lib/db";
 
 const kindLabel: Record<Post["kind"], { label: string; cls: string }> = {
   pr: { label: "🏅 Personal Record", cls: "bg-gold/15 text-gold" },
@@ -14,33 +15,68 @@ const kindLabel: Record<Post["kind"], { label: string; cls: string }> = {
   update: { label: "📝 Update", cls: "bg-white/10 text-slate-300" },
 };
 
+const unknownMember = (id: string): Member => ({
+  id,
+  name: "Member",
+  handle: "member",
+  avatar: `https://i.pravatar.cc/200?u=${id}`,
+  role: "member",
+  bio: "",
+  joined: "",
+  badges: [],
+  stats: { totalMiles: 0, weeklyMiles: 0, runs: 0, eventsAttended: 0, streak: 0 },
+});
+
 export default function FeedPage() {
-  const [posts, setPosts] = useState<Post[]>(seedPosts);
+  const { profileId } = useAuth();
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [profiles, setProfiles] = useState<ProfileMap>({});
+  const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState("");
-  const you = memberById(youId);
+
+  const who = (id: string) => profiles[id] ?? unknownMember(id);
+  const you = profileId ? who(profileId) : unknownMember("you");
+
+  useEffect(() => {
+    let active = true;
+    Promise.all([getPosts(), getProfileMap()]).then(([p, map]) => {
+      if (!active) return;
+      setPosts(p);
+      setProfiles(map);
+      setLoading(false);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const toggleLike = (id: string) =>
-    setPosts((p) =>
-      p.map((post) =>
-        post.id === id
-          ? { ...post, liked: !post.liked, likes: post.likes + (post.liked ? -1 : 1) }
-          : post
-      )
+    setPosts((list) =>
+      list.map((post) => {
+        if (post.id !== id) return post;
+        const liked = !post.liked;
+        const likes = post.likes + (liked ? 1 : -1);
+        likePost(id, likes);
+        return { ...post, liked, likes };
+      })
     );
 
-  const publish = () => {
-    if (!draft.trim()) return;
-    const newPost: Post = {
-      id: `p_${Date.now()}`,
-      authorId: youId,
-      createdAt: new Date().toISOString(),
-      kind: "update",
-      text: draft.trim(),
-      likes: 0,
-      comments: [],
-    };
-    setPosts((p) => [newPost, ...p]);
+  const publish = async () => {
+    if (!draft.trim() || !profileId) return;
+    const text = draft.trim();
     setDraft("");
+    const saved = await createPost({ authorId: profileId, text });
+    const newPost: Post =
+      saved ?? {
+        id: `p_${Date.now()}`,
+        authorId: profileId,
+        createdAt: new Date().toISOString(),
+        kind: "update",
+        text,
+        likes: 0,
+        comments: [],
+      };
+    setPosts((p) => [newPost, ...p]);
   };
 
   return (
@@ -48,7 +84,6 @@ export default function FeedPage() {
       <TopBar title="Community Feed" />
 
       <main className="px-4 py-4">
-        {/* Composer */}
         <div className="card mb-4 p-3">
           <div className="flex gap-3">
             <img src={you.avatar} alt="" className="h-10 w-10 rounded-full object-cover ring-1 ring-white/10" />
@@ -72,13 +107,35 @@ export default function FeedPage() {
           </div>
         </div>
 
-        {/* Feed */}
-        <div className="space-y-4">
-          {posts.map((post) => (
-            <PostCard key={post.id} post={post} onLike={() => toggleLike(post.id)} />
-          ))}
-        </div>
+        {loading ? (
+          <FeedSkeleton />
+        ) : (
+          <div className="space-y-4">
+            {posts.map((post) => (
+              <PostCard key={post.id} post={post} who={who} onLike={() => toggleLike(post.id)} />
+            ))}
+          </div>
+        )}
       </main>
+    </div>
+  );
+}
+
+function FeedSkeleton() {
+  return (
+    <div className="space-y-4">
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="card animate-pulse p-4">
+          <div className="flex gap-3">
+            <div className="h-10 w-10 rounded-full bg-white/10" />
+            <div className="flex-1 space-y-2">
+              <div className="h-3 w-1/3 rounded bg-white/10" />
+              <div className="h-3 w-2/3 rounded bg-white/10" />
+            </div>
+          </div>
+          <div className="mt-3 h-24 rounded-xl bg-white/5" />
+        </div>
+      ))}
     </div>
   );
 }
@@ -91,8 +148,8 @@ function IconBtn({ children, label }: { children: React.ReactNode; label: string
   );
 }
 
-function PostCard({ post, onLike }: { post: Post; onLike: () => void }) {
-  const author = memberById(post.authorId);
+function PostCard({ post, who, onLike }: { post: Post; who: (id: string) => Member; onLike: () => void }) {
+  const author = who(post.authorId);
   const [showComments, setShowComments] = useState(false);
   const meta = kindLabel[post.kind];
 
@@ -135,11 +192,9 @@ function PostCard({ post, onLike }: { post: Post; onLike: () => void }) {
 
       {showComments && (
         <div className="space-y-2 border-t border-white/5 bg-white/[0.02] p-3">
-          {post.comments.length === 0 && (
-            <p className="text-xs text-slate-500">No comments yet. Be the first!</p>
-          )}
+          {post.comments.length === 0 && <p className="text-xs text-slate-500">No comments yet. Be the first!</p>}
           {post.comments.map((c) => {
-            const ca = memberById(c.authorId);
+            const ca = who(c.authorId);
             return (
               <div key={c.id} className="flex gap-2">
                 <img src={ca.avatar} alt="" className="h-7 w-7 rounded-full object-cover" />

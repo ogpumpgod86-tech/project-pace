@@ -10,6 +10,7 @@ import {
   youId,
 } from "@/lib/mockData";
 import { timeAgo } from "@/lib/format";
+import SignOutButton from "@/components/SignOutButton";
 
 export default function ProfilePage() {
   const you = memberById(youId);
@@ -83,10 +84,7 @@ export default function ProfilePage() {
               <p className="text-2xl">📊</p>
               <p className="mt-1 text-sm font-semibold text-white">Owner Dashboard</p>
             </Link>
-            <Link href="/login" className="card p-4 text-center">
-              <p className="text-2xl">🚪</p>
-              <p className="mt-1 text-sm font-semibold text-white">Sign out</p>
-            </Link>
+            <SignOutButton />
           </section>
 
           {/* My posts */}

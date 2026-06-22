@@ -1,50 +1,73 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import TopBar from "@/components/TopBar";
-import { events as seedEvents, memberById, youId } from "@/lib/mockData";
-import type { EventItem } from "@/lib/types";
+import type { EventItem, Member } from "@/lib/types";
 import { monthDay, to12h, weekday } from "@/lib/format";
 import { DifficultyPill } from "@/components/ui";
+import { useAuth } from "@/lib/auth";
+import { getEvents, getProfileMap, toggleRsvp as dbToggleRsvp, type ProfileMap } from "@/lib/db";
+
+const unknownMember = (id: string): Member => ({
+  id, name: "Member", handle: "member", avatar: `https://i.pravatar.cc/200?u=${id}`,
+  role: "member", bio: "", joined: "", badges: [],
+  stats: { totalMiles: 0, weeklyMiles: 0, runs: 0, eventsAttended: 0, streak: 0 },
+});
 
 export default function EventsPage() {
-  const [events, setEvents] = useState<EventItem[]>(seedEvents);
+  const { profileId } = useAuth();
+  const [events, setEvents] = useState<EventItem[]>([]);
+  const [profiles, setProfiles] = useState<ProfileMap>({});
+  const [loading, setLoading] = useState(true);
   const [view, setView] = useState<"week" | "month">("week");
   const [openId, setOpenId] = useState<string | null>(null);
+
+  const who = (id: string) => profiles[id] ?? unknownMember(id);
+
+  useEffect(() => {
+    let active = true;
+    Promise.all([getEvents(), getProfileMap()]).then(([e, map]) => {
+      if (!active) return;
+      setEvents(e);
+      setProfiles(map);
+      setLoading(false);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const sorted = useMemo(
     () => [...events].sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time)),
     [events]
   );
 
-  const toggleRsvp = (id: string) =>
+  const toggleRsvp = (id: string) => {
+    if (!profileId) return;
     setEvents((evs) =>
-      evs.map((e) =>
-        e.id === id
-          ? {
-              ...e,
-              attendees: e.attendees.includes(youId)
-                ? e.attendees.filter((a) => a !== youId)
-                : [...e.attendees, youId],
-            }
-          : e
-      )
+      evs.map((e) => {
+        if (e.id !== id) return e;
+        const going = e.attendees.includes(profileId);
+        dbToggleRsvp(id, profileId, !going);
+        return {
+          ...e,
+          attendees: going ? e.attendees.filter((a) => a !== profileId) : [...e.attendees, profileId],
+        };
+      })
     );
+  };
 
   return (
     <div className="animate-fade-up">
       <TopBar title="Events & Calendar" />
 
       <main className="px-4 py-4">
-        {/* View toggle */}
         <div className="mb-4 flex rounded-xl bg-white/5 p-1 text-sm font-medium">
           {(["week", "month"] as const).map((v) => (
             <button
               key={v}
               onClick={() => setView(v)}
-              className={`flex-1 rounded-lg py-1.5 capitalize transition ${
-                view === v ? "bg-brand text-white shadow" : "text-slate-400"
-              }`}
+              className={`flex-1 rounded-lg py-1.5 capitalize transition ${view === v ? "bg-brand text-white shadow" : "text-slate-400"}`}
             >
               {v} view
             </button>
@@ -57,11 +80,11 @@ export default function EventsPage() {
           <WeekStrip events={sorted} />
         )}
 
-        {/* Event list */}
         <div className="mt-5 space-y-3">
+          {loading && [0, 1, 2].map((i) => <div key={i} className="card h-20 animate-pulse" />)}
           {sorted.map((e) => {
-            const host = memberById(e.hostId);
-            const going = e.attendees.includes(youId);
+            const host = who(e.hostId);
+            const going = profileId ? e.attendees.includes(profileId) : false;
             const open = openId === e.id;
             return (
               <div key={e.id} className="card overflow-hidden">
@@ -89,12 +112,11 @@ export default function EventsPage() {
                       <p className="text-xs text-slate-400">Hosted by <span className="text-slate-200">{host.name}</span></p>
                     </div>
 
-                    {/* Attendees */}
                     <div className="mt-3">
-                      <p className="text-xs text-slate-400">{e.attendees.length} going · {e.capacity - e.attendees.length} spots left</p>
+                      <p className="text-xs text-slate-400">{e.attendees.length} going · {Math.max(0, e.capacity - e.attendees.length)} spots left</p>
                       <div className="mt-1.5 flex -space-x-2">
                         {e.attendees.slice(0, 6).map((id) => (
-                          <img key={id} src={memberById(id).avatar} alt="" className="h-8 w-8 rounded-full object-cover ring-2 ring-ink-850" />
+                          <img key={id} src={who(id).avatar} alt="" className="h-8 w-8 rounded-full object-cover ring-2 ring-ink-850" />
                         ))}
                         {e.attendees.length > 6 && (
                           <span className="grid h-8 w-8 place-items-center rounded-full bg-white/10 text-[10px] font-semibold text-slate-300 ring-2 ring-ink-850">
@@ -105,10 +127,7 @@ export default function EventsPage() {
                     </div>
 
                     <div className="mt-3 flex gap-2">
-                      <button
-                        onClick={() => toggleRsvp(e.id)}
-                        className={going ? "btn-ghost flex-1 text-accent" : "btn-primary flex-1"}
-                      >
+                      <button onClick={() => toggleRsvp(e.id)} className={going ? "btn-ghost flex-1 text-accent" : "btn-primary flex-1"}>
                         {going ? "✓ You're going" : "RSVP"}
                       </button>
                       <button className="btn-ghost px-4">💬 Chat</button>
@@ -125,7 +144,6 @@ export default function EventsPage() {
 }
 
 function WeekStrip({ events }: { events: EventItem[] }) {
-  // Build the current week (Mon–Sun) starting from today.
   const today = new Date();
   const days = Array.from({ length: 7 }).map((_, i) => {
     const d = new Date(today);

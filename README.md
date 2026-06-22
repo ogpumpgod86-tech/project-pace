@@ -33,12 +33,35 @@ npm run dev
 
 The login screen has a **"Continue with demo account"** button — no credentials needed.
 
-## Connecting Supabase (optional)
+## Two modes (auto-detected)
+
+The app reads its mode from the environment:
+
+- **Mock mode** (no env vars) — everything runs on in-memory sample data. Zero config, perfect for a demo.
+- **Live mode** (Supabase env vars set) — **auth, posts, events, leaderboards, and chat** are powered by Supabase, including **realtime chat**.
+
+The switch is automatic via [`src/lib/supabaseClient.ts`](src/lib/supabaseClient.ts); all data access goes through [`src/lib/db.ts`](src/lib/db.ts), and auth through [`src/lib/auth.tsx`](src/lib/auth.tsx).
+
+## Connecting Supabase (enable live mode)
 
 1. Create a project at [supabase.com](https://supabase.com).
-2. In the SQL editor, run `supabase/schema.sql`, then `supabase/seed.sql`.
-3. Copy `.env.local.example` to `.env.local` and fill in your project URL + anon key.
-4. Restart `npm run dev`. `src/lib/supabaseClient.ts` exposes a ready client.
+2. In the **SQL editor**, run [`supabase/schema.sql`](supabase/schema.sql), then [`supabase/seed.sql`](supabase/seed.sql).
+   - The schema enables Realtime on `messages`, adds simple RLS (public read, authenticated write), and auto-creates a profile on sign-up.
+3. **Auth settings:** for a frictionless demo, go to **Authentication → Providers → Email** and turn **"Confirm email" off** so new sign-ups log in immediately.
+4. Copy `.env.example` to `.env.local` and fill in your project URL + anon key (same keys go in Vercel).
+5. Restart `npm run dev`. Sign up / sign in with a real account, or use **Continue with demo account**.
+
+### What's wired to Supabase
+
+| Domain | Reads | Writes / realtime |
+|---|---|---|
+| **Auth** | session + profile | sign up, sign in, sign out |
+| **Feed** | posts + comments | create post, like |
+| **Events** | events + RSVPs | RSVP / un-RSVP |
+| **Leaderboards** | membership stats | — |
+| **Chat** | channels + messages | send message + **realtime** inserts |
+
+> Dashboard, profile, and owner analytics currently render from sample data (aggregate views) — fine for the MVP demo.
 
 ## Deploy
 

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import BottomNav from "@/components/BottomNav";
+import { AuthProvider } from "@/lib/auth";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
@@ -27,8 +28,10 @@ export default function RootLayout({
   return (
     <html lang="en" className={inter.variable}>
       <body>
-        <div className="app-shell pb-24">{children}</div>
-        <BottomNav />
+        <AuthProvider>
+          <div className="app-shell pb-24">{children}</div>
+          <BottomNav />
+        </AuthProvider>
       </body>
     </html>
   );
