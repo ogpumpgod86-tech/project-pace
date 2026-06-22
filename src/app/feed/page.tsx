@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
 import TopBar from "@/components/TopBar";
 import type { Member, Post } from "@/lib/types";
 import { timeAgo } from "@/lib/format";
@@ -33,6 +34,8 @@ export default function FeedPage() {
   const [profiles, setProfiles] = useState<ProfileMap>({});
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState("");
+  const [draftImage, setDraftImage] = useState<string | undefined>(undefined);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const who = (id: string) => profiles[id] ?? unknownMember(id);
   const you = profileId ? who(profileId) : unknownMember("you");
@@ -50,22 +53,32 @@ export default function FeedPage() {
     };
   }, []);
 
-  const toggleLike = (id: string) =>
-    setPosts((list) =>
-      list.map((post) => {
-        if (post.id !== id) return post;
-        const liked = !post.liked;
-        const likes = post.likes + (liked ? 1 : -1);
-        likePost(id, likes);
-        return { ...post, liked, likes };
-      })
-    );
+  const toggleLike = (id: string) => {
+    const post = posts.find((p) => p.id === id);
+    if (!post) return;
+    const liked = !post.liked;
+    const likes = post.likes + (liked ? 1 : -1);
+    // Persist once, outside the state updater (updaters may run twice in dev).
+    likePost(id, likes, liked);
+    setPosts((list) => list.map((p) => (p.id === id ? { ...p, liked, likes } : p)));
+  };
+
+  const onPickImage = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setDraftImage(reader.result as string);
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
 
   const publish = async () => {
-    if (!draft.trim() || !profileId) return;
     const text = draft.trim();
+    if ((!text && !draftImage) || !profileId) return;
     setDraft("");
-    const saved = await createPost({ authorId: profileId, text });
+    const image = draftImage;
+    setDraftImage(undefined);
+    const saved = await createPost({ authorId: profileId, text, image });
     const newPost: Post =
       saved ?? {
         id: `p_${Date.now()}`,
@@ -73,6 +86,7 @@ export default function FeedPage() {
         createdAt: new Date().toISOString(),
         kind: "update",
         text,
+        image,
         likes: 0,
         comments: [],
       };
@@ -95,13 +109,29 @@ export default function FeedPage() {
               className="flex-1 resize-none bg-transparent text-sm text-white placeholder:text-slate-500 focus:outline-none"
             />
           </div>
+
+          {draftImage && (
+            <div className="relative mt-2 overflow-hidden rounded-xl">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={draftImage} alt="" className="max-h-56 w-full object-cover" />
+              <button
+                onClick={() => setDraftImage(undefined)}
+                className="absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-full bg-black/60 text-white"
+                aria-label="Remove image"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          <input ref={fileRef} type="file" accept="image/*" onChange={onPickImage} className="hidden" />
           <div className="mt-2 flex items-center justify-between border-t border-white/5 pt-2">
             <div className="flex gap-1 text-slate-500">
-              <IconBtn label="Photo">🖼️</IconBtn>
-              <IconBtn label="Video">🎥</IconBtn>
+              <IconBtn label="Photo" onClick={() => fileRef.current?.click()}>🖼️</IconBtn>
+              <IconBtn label="Video" onClick={() => fileRef.current?.click()}>🎥</IconBtn>
               <IconBtn label="Stats">📊</IconBtn>
             </div>
-            <button onClick={publish} className="btn-primary px-4 py-1.5 text-xs disabled:opacity-40" disabled={!draft.trim()}>
+            <button onClick={publish} className="btn-primary px-4 py-1.5 text-xs disabled:opacity-40" disabled={!draft.trim() && !draftImage}>
               Post
             </button>
           </div>
@@ -140,9 +170,9 @@ function FeedSkeleton() {
   );
 }
 
-function IconBtn({ children, label }: { children: React.ReactNode; label: string }) {
+function IconBtn({ children, label, onClick }: { children: React.ReactNode; label: string; onClick?: () => void }) {
   return (
-    <button className="grid h-8 w-8 place-items-center rounded-lg text-base hover:bg-white/5" aria-label={label}>
+    <button onClick={onClick} type="button" className="grid h-8 w-8 place-items-center rounded-lg text-base hover:bg-white/5" aria-label={label}>
       {children}
     </button>
   );
@@ -156,11 +186,13 @@ function PostCard({ post, who, onLike }: { post: Post; who: (id: string) => Memb
   return (
     <article className="card overflow-hidden">
       <div className="flex items-center gap-3 p-3">
-        <img src={author.avatar} alt="" className="h-10 w-10 rounded-full object-cover ring-1 ring-white/10" />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-white">{author.name}</p>
-          <p className="text-xs text-slate-500">@{author.handle} · {timeAgo(post.createdAt)}</p>
-        </div>
+        <Link href={`/u/${author.id}`} className="flex min-w-0 flex-1 items-center gap-3">
+          <img src={author.avatar} alt="" className="h-10 w-10 rounded-full object-cover ring-1 ring-white/10" />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold text-white">{author.name}</p>
+            <p className="text-xs text-slate-500">@{author.handle} · {timeAgo(post.createdAt)}</p>
+          </div>
+        </Link>
         <span className={`pill ${meta.cls}`}>{meta.label}</span>
       </div>
 

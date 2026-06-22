@@ -1,8 +1,8 @@
 import Link from "next/link";
 import TopBar from "@/components/TopBar";
+import AttendanceDrilldown from "@/components/AttendanceDrilldown";
 import {
   events,
-  memberById,
   members,
   ownerAnalytics as a,
 } from "@/lib/mockData";
@@ -10,7 +10,6 @@ import { monthDay, to12h } from "@/lib/format";
 
 export default function OwnerDashboardPage() {
   const maxWeekly = Math.max(...a.weeklyActive);
-  const maxAttend = Math.max(...a.attendanceByEvent.map((e) => e.value));
 
   return (
     <div className="animate-fade-up">
@@ -47,23 +46,8 @@ export default function OwnerDashboardPage() {
           </div>
         </section>
 
-        {/* Attendance by event */}
-        <section className="card p-4">
-          <h2 className="section-title">Attendance by Event</h2>
-          <div className="mt-3 space-y-2.5">
-            {a.attendanceByEvent.map((e) => (
-              <div key={e.label}>
-                <div className="flex justify-between text-xs">
-                  <span className="text-slate-300">{e.label}</span>
-                  <span className="font-semibold text-white">{e.value}</span>
-                </div>
-                <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-white/10">
-                  <div className="h-full rounded-full bg-accent" style={{ width: `${(e.value / maxAttend) * 100}%` }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
+        {/* Attendance by event (clickable drill-down) */}
+        <AttendanceDrilldown />
 
         {/* Member management */}
         <section>
@@ -73,7 +57,7 @@ export default function OwnerDashboardPage() {
           </div>
           <div className="card mt-2 divide-y divide-white/5">
             {members.slice(0, 6).map((m) => (
-              <div key={m.id} className="flex items-center gap-3 p-3">
+              <Link key={m.id} href={`/u/${m.id}`} className="flex items-center gap-3 p-3">
                 <img src={m.avatar} alt="" className="h-9 w-9 rounded-full object-cover ring-1 ring-white/10" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-white">{m.name}</p>
@@ -82,7 +66,7 @@ export default function OwnerDashboardPage() {
                 <span className={`pill ${
                   m.role === "owner" ? "bg-gold/15 text-gold" : m.role === "admin" ? "bg-brand/15 text-brand-400" : "bg-white/5 text-slate-400"
                 }`}>{m.role}</span>
-              </div>
+              </Link>
             ))}
           </div>
         </section>

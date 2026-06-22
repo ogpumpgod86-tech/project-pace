@@ -1,12 +1,14 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import TopBar from "@/components/TopBar";
 import type { EventItem, Member } from "@/lib/types";
 import { monthDay, to12h, weekday } from "@/lib/format";
 import { DifficultyPill } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
-import { getEvents, getProfileMap, toggleRsvp as dbToggleRsvp, type ProfileMap } from "@/lib/db";
+import { getEventChannelId, getEvents, getProfileMap, toggleRsvp as dbToggleRsvp, type ProfileMap } from "@/lib/db";
 
 const unknownMember = (id: string): Member => ({
   id, name: "Member", handle: "member", avatar: `https://i.pravatar.cc/200?u=${id}`,
@@ -15,6 +17,7 @@ const unknownMember = (id: string): Member => ({
 });
 
 export default function EventsPage() {
+  const router = useRouter();
   const { profileId } = useAuth();
   const [events, setEvents] = useState<EventItem[]>([]);
   const [profiles, setProfiles] = useState<ProfileMap>({});
@@ -44,16 +47,20 @@ export default function EventsPage() {
 
   const toggleRsvp = (id: string) => {
     if (!profileId) return;
+    const ev = events.find((e) => e.id === id);
+    if (!ev) return;
+    const going = ev.attendees.includes(profileId);
+    // Persist once, outside the state updater (updaters may run twice in dev).
+    dbToggleRsvp(id, profileId, !going);
     setEvents((evs) =>
-      evs.map((e) => {
-        if (e.id !== id) return e;
-        const going = e.attendees.includes(profileId);
-        dbToggleRsvp(id, profileId, !going);
-        return {
-          ...e,
-          attendees: going ? e.attendees.filter((a) => a !== profileId) : [...e.attendees, profileId],
-        };
-      })
+      evs.map((e) =>
+        e.id !== id
+          ? e
+          : {
+              ...e,
+              attendees: going ? e.attendees.filter((a) => a !== profileId) : [...e.attendees, profileId],
+            }
+      )
     );
   };
 
@@ -107,16 +114,18 @@ export default function EventsPage() {
                 {open && (
                   <div className="border-t border-white/5 p-3">
                     <p className="text-sm text-slate-300">{e.description}</p>
-                    <div className="mt-3 flex items-center gap-2">
+                    <Link href={`/u/${host.id}`} className="mt-3 flex items-center gap-2">
                       <img src={host.avatar} alt="" className="h-6 w-6 rounded-full object-cover" />
                       <p className="text-xs text-slate-400">Hosted by <span className="text-slate-200">{host.name}</span></p>
-                    </div>
+                    </Link>
 
                     <div className="mt-3">
                       <p className="text-xs text-slate-400">{e.attendees.length} going · {Math.max(0, e.capacity - e.attendees.length)} spots left</p>
                       <div className="mt-1.5 flex -space-x-2">
                         {e.attendees.slice(0, 6).map((id) => (
-                          <img key={id} src={who(id).avatar} alt="" className="h-8 w-8 rounded-full object-cover ring-2 ring-ink-850" />
+                          <Link key={id} href={`/u/${id}`}>
+                            <img src={who(id).avatar} alt="" className="h-8 w-8 rounded-full object-cover ring-2 ring-ink-850" />
+                          </Link>
                         ))}
                         {e.attendees.length > 6 && (
                           <span className="grid h-8 w-8 place-items-center rounded-full bg-white/10 text-[10px] font-semibold text-slate-300 ring-2 ring-ink-850">
@@ -130,7 +139,15 @@ export default function EventsPage() {
                       <button onClick={() => toggleRsvp(e.id)} className={going ? "btn-ghost flex-1 text-accent" : "btn-primary flex-1"}>
                         {going ? "✓ You're going" : "RSVP"}
                       </button>
-                      <button className="btn-ghost px-4">💬 Chat</button>
+                      <button
+                        onClick={async () => {
+                          const cid = await getEventChannelId(e.id, e.title);
+                          if (cid) router.push(`/chat?channel=${cid}`);
+                        }}
+                        className="btn-ghost px-4"
+                      >
+                        💬 Chat
+                      </button>
                     </div>
                   </div>
                 )}

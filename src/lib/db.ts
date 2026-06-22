@@ -13,6 +13,7 @@
 
 import { supabase, isSupabaseConfigured } from "./supabaseClient";
 import * as mock from "./mockData";
+import * as store from "./mockStore";
 import type {
   ChatChannel,
   ChatMessage,
@@ -106,7 +107,7 @@ export async function getProfileMap(communityId = DEMO_COMMUNITY): Promise<Profi
 
 // ── Feed: posts + comments ────────────────────────────────────────────────
 export async function getPosts(communityId = DEMO_COMMUNITY): Promise<Post[]> {
-  if (!isLive || !supabase) return mock.posts;
+  if (!isLive || !supabase) return store.listPosts();
   const { data, error } = await supabase
     .from("posts")
     .select("*, comments(*)")
@@ -138,8 +139,22 @@ export async function createPost(input: {
   authorId: string;
   text: string;
   kind?: Post["kind"];
+  image?: string;
 }): Promise<Post | null> {
-  if (!isLive || !supabase) return null; // mock mode handles optimistic add in-page
+  if (!isLive || !supabase) {
+    const post: Post = {
+      id: `p_${Date.now()}`,
+      authorId: input.authorId,
+      createdAt: new Date().toISOString(),
+      kind: input.kind ?? "update",
+      text: input.text,
+      image: input.image,
+      likes: 0,
+      comments: [],
+    };
+    store.addPost(post);
+    return post;
+  }
   const { data, error } = await supabase
     .from("posts")
     .insert({
@@ -147,6 +162,7 @@ export async function createPost(input: {
       author_id: input.authorId,
       text: input.text,
       kind: input.kind ?? "update",
+      image_url: input.image ?? null,
     })
     .select("*, comments(*)")
     .single();
@@ -156,20 +172,24 @@ export async function createPost(input: {
     authorId: data.author_id,
     createdAt: data.created_at,
     text: data.text,
+    image: data.image_url ?? undefined,
     kind: data.kind,
     likes: data.likes ?? 0,
     comments: [],
   };
 }
 
-export async function likePost(postId: string, likes: number): Promise<void> {
-  if (!isLive || !supabase) return;
+export async function likePost(postId: string, likes: number, liked: boolean): Promise<void> {
+  if (!isLive || !supabase) {
+    store.setPostLike(postId, liked);
+    return;
+  }
   await supabase.from("posts").update({ likes }).eq("id", postId);
 }
 
 // ── Events + RSVPs ────────────────────────────────────────────────────────
 export async function getEvents(communityId = DEMO_COMMUNITY): Promise<EventItem[]> {
-  if (!isLive || !supabase) return mock.events;
+  if (!isLive || !supabase) return store.listEvents();
   const { data, error } = await supabase
     .from("events")
     .select("*, rsvps(profile_id)")
@@ -192,7 +212,10 @@ export async function getEvents(communityId = DEMO_COMMUNITY): Promise<EventItem
 }
 
 export async function toggleRsvp(eventId: string, profileId: string, going: boolean): Promise<void> {
-  if (!isLive || !supabase) return;
+  if (!isLive || !supabase) {
+    store.toggleRsvp(eventId, profileId);
+    return;
+  }
   if (going) {
     await supabase.from("rsvps").insert({ event_id: eventId, profile_id: profileId });
   } else {
@@ -227,7 +250,7 @@ export async function getLeaderboard(
 
 // ── Chat ──────────────────────────────────────────────────────────────────
 export async function getChannels(communityId = DEMO_COMMUNITY): Promise<ChatChannel[]> {
-  if (!isLive || !supabase) return mock.channels;
+  if (!isLive || !supabase) return store.listChannels();
   const { data, error } = await supabase
     .from("channels")
     .select("*")
@@ -244,7 +267,7 @@ export async function getChannels(communityId = DEMO_COMMUNITY): Promise<ChatCha
 }
 
 export async function getMessages(channelId: string): Promise<ChatMessage[]> {
-  if (!isLive || !supabase) return mock.messages.filter((m) => m.channelId === channelId);
+  if (!isLive || !supabase) return store.listMessages(channelId);
   const { data, error } = await supabase
     .from("messages")
     .select("*")
@@ -265,7 +288,17 @@ export async function sendMessage(
   authorId: string,
   text: string
 ): Promise<ChatMessage | null> {
-  if (!isLive || !supabase) return null;
+  if (!isLive || !supabase) {
+    const msg: ChatMessage = {
+      id: `x_${Date.now()}`,
+      channelId,
+      authorId,
+      text,
+      createdAt: new Date().toISOString(),
+    };
+    store.addMessage(msg);
+    return msg;
+  }
   const { data, error } = await supabase
     .from("messages")
     .insert({ channel_id: channelId, author_id: authorId, text })
@@ -305,4 +338,38 @@ export function subscribeToMessages(channelId: string, cb: (m: ChatMessage) => v
   return () => {
     client.removeChannel(channel);
   };
+}
+
+export async function deleteMessage(id: string): Promise<void> {
+  if (!isLive || !supabase) {
+    store.deleteMessage(id);
+    return;
+  }
+  await supabase.from("messages").delete().eq("id", id);
+}
+
+// Returns the channel id for an event's group chat (creating one in mock mode).
+export async function getEventChannelId(eventId: string, title: string): Promise<string> {
+  if (!isLive || !supabase) return store.ensureEventChannel(eventId, title);
+  // Live: look for an existing event channel by name slug, else fall back to general.
+  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const { data } = await supabase.from("channels").select("id,name").ilike("name", `%${slug}%`).limit(1);
+  if (data && data[0]) return data[0].id;
+  const { data: first } = await supabase.from("channels").select("id").order("sort").limit(1);
+  return first?.[0]?.id ?? "";
+}
+
+// ── Follows (mock-only for the MVP) ────────────────────────────────────────
+export function isFollowing(id: string): boolean {
+  return store.isFollowing(id);
+}
+
+export function toggleFollow(id: string): boolean {
+  return store.toggleFollow(id);
+}
+
+// ── Single member lookup (for profile pages) ───────────────────────────────
+export async function getMember(id: string): Promise<Member | null> {
+  const map = await getProfileMap();
+  return map[id] ?? null;
 }

@@ -11,6 +11,7 @@ import {
 } from "@/lib/mockData";
 import { timeAgo } from "@/lib/format";
 import SignOutButton from "@/components/SignOutButton";
+import BadgeGrid from "@/components/BadgeGrid";
 
 export default function ProfilePage() {
   const you = memberById(youId);
@@ -53,21 +54,7 @@ export default function ProfilePage() {
           {/* Badges */}
           <section className="mt-6">
             <h2 className="section-title">Badges ({earned.size}/{allBadges.length})</h2>
-            <div className="mt-3 grid grid-cols-4 gap-3">
-              {allBadges.map((b) => {
-                const has = earned.has(b.id);
-                return (
-                  <div key={b.id} className={`flex flex-col items-center text-center ${has ? "" : "opacity-30"}`}>
-                    <div className={`grid h-14 w-14 place-items-center rounded-2xl text-2xl ${
-                      has ? "bg-gradient-to-br from-brand/30 to-accent/20 ring-1 ring-white/10" : "bg-white/5"
-                    }`}>
-                      {has ? b.icon : "🔒"}
-                    </div>
-                    <p className="mt-1 text-[10px] font-medium leading-tight text-slate-300">{b.name}</p>
-                  </div>
-                );
-              })}
-            </div>
+            <BadgeGrid earned={you.badges} />
           </section>
 
           {/* Quick links */}

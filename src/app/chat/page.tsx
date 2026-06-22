@@ -6,6 +6,7 @@ import type { ChatChannel, ChatMessage, Member } from "@/lib/types";
 import { timeAgo } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
 import {
+  deleteMessage as dbDelete,
   getChannels,
   getMessages,
   getProfileMap,
@@ -40,9 +41,12 @@ export default function ChatPage() {
       if (!on) return;
       setChannels(chs);
       setProfiles(map);
-      if (chs[0]) {
-        setActiveId(chs[0].id);
-        activeRef.current = chs[0].id;
+      // Honor a ?channel=<id> deep link (e.g. opening an event's group chat).
+      const wanted = new URLSearchParams(window.location.search).get("channel");
+      const initial = (wanted && chs.find((c) => c.id === wanted)?.id) || chs[0]?.id;
+      if (initial) {
+        setActiveId(initial);
+        activeRef.current = initial;
       }
     });
     return () => {
@@ -91,6 +95,11 @@ export default function ChatPage() {
     }
   };
 
+  const remove = (id: string) => {
+    setThread((prev) => prev.filter((m) => m.id !== id));
+    dbDelete(id);
+  };
+
   return (
     <div className="flex h-[calc(100vh-0px)] flex-col">
       <TopBar title="Community Chat" />
@@ -130,10 +139,21 @@ export default function ChatPage() {
               {!mine ? (
                 <img src={author.avatar} alt="" className={`h-7 w-7 shrink-0 rounded-full object-cover ${showAuthor ? "" : "invisible"}`} />
               ) : null}
-              <div className={`max-w-[78%] ${mine ? "items-end" : ""}`}>
+              <div className={`group max-w-[78%] ${mine ? "items-end" : ""}`}>
                 {showAuthor && <p className="mb-0.5 px-1 text-[11px] font-medium text-slate-400">{author.name}</p>}
-                <div className={`rounded-2xl px-3.5 py-2 text-sm ${mine ? "rounded-br-sm bg-brand text-white" : "rounded-bl-sm bg-white/5 text-slate-100"}`}>
-                  {m.text}
+                <div className="flex items-center gap-1.5">
+                  {mine && (
+                    <button
+                      onClick={() => remove(m.id)}
+                      className="text-[11px] text-slate-600 opacity-0 transition group-hover:opacity-100"
+                      aria-label="Delete message"
+                    >
+                      🗑
+                    </button>
+                  )}
+                  <div className={`rounded-2xl px-3.5 py-2 text-sm ${mine ? "rounded-br-sm bg-brand text-white" : "rounded-bl-sm bg-white/5 text-slate-100"}`}>
+                    {m.text}
+                  </div>
                 </div>
                 <p className={`mt-0.5 px-1 text-[10px] text-slate-600 ${mine ? "text-right" : ""}`}>{timeAgo(m.createdAt)}</p>
               </div>
